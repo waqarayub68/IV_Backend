@@ -144,6 +144,7 @@ CORS(app)
 import json
 from datetime import datetime
 from json import JSONEncoder
+from sqlalchemy import extract
 import numpy
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@localhost:5432/pandemic_db6'
@@ -360,11 +361,36 @@ def getDashboardStatsValues():
         return (str(e))
 
 # Get Paramters
-# @app.route('/get-parameter')
-# def getParameter():
-#     # return parameter + " " + optional_parameter
-#     print(request.args.to_dict())
-#     return jsonify(request.args.to_dict())
+@app.route('/get-combineGraph-values')
+def getParameter():
+    try:
+         # func method
+        # from sqlalchemy import func 
+         #Group according to the date of a certain month of a certain year.
+        covidEntries=COVIDENTRY.query.filter(COVIDENTRY.location == request.args.to_dict()['country']).with_entities(
+            func.max(COVIDENTRY.totalCases),
+            func.max(COVIDENTRY.totalDeaths),
+            COVIDENTRY.location,
+            extract('year',COVIDENTRY.date),
+            extract('month',COVIDENTRY.date)
+        ).group_by(COVIDENTRY.location, extract('year', COVIDENTRY.date), extract('month',COVIDENTRY.date)
+        ).order_by(extract('year', COVIDENTRY.date), extract('month',COVIDENTRY.date)).all()
+        response = []
+        for i in covidEntries:
+
+            response.append({
+                "Cases": i[0],
+                "Deaths": i[1],
+                "Country": i[2],
+                "Year": i[3],
+                "month": i[4],
+            })
+        # print(response)
+        # return parameter + " " + optional_parameter
+        # print(request.args.to_dict()['country'])
+        return jsonify({'combineGraph': response})
+    except Exception as e:
+        return (str(e))
 
 
 # @app.route('/')
