@@ -1,7 +1,7 @@
 import numpy
 from sqlalchemy import extract
 from json import JSONEncoder
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from sklearn.impute import KNNImputer
 import seaborn as sns
@@ -19,10 +19,13 @@ pd.plotting.register_matplotlib_converters()
 
 
 covid_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\owid-covid-data.csv"
-swine_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\IV_Backend\\swine_flu.csv"
+swine_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\swine_flu.csv"
+ebola_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\ebola.csv"
+sars_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\sars_2003.csv"
 covid_data = pd.read_csv(covid_data_path)
 swine_data = pd.read_csv(swine_data_path)
-
+ebola_data = pd.read_csv(ebola_data_path)
+sars_data = pd.read_csv(sars_data_path)
 
 # Knn Imputer
 nan = np.nan
@@ -56,6 +59,9 @@ interested_features = [
 Cleaned_SwineFrame = imputed_df
 covid_data.dropna(subset=["continent"], inplace=True)
 covid_data.dropna(subset=["population"], inplace=True)
+ebola_data.dropna(
+    subset=["Cumulative no. of confirmed, probable and suspected cases"], inplace=True)
+
 for i in covid_data[interested_features].columns:
     if covid_data[i].isna().sum() > 0:
         covid_data[i] = covid_data[i].fillna(value=0)
@@ -70,7 +76,7 @@ app = Flask(__name__)
 CORS(app)
 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@localhost:5432/pandemic_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@localhost:5432/pandemic_db3'
 db = SQLAlchemy(app)
 
 
@@ -135,6 +141,40 @@ class SWINEENTRY(db.Model):
         return '<User %>' % self.name
 
 
+class EBOLAENTRY(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    confirm = db.Column(db.Integer)
+    deaths = db.Column(db.Integer)
+    country = db.Column(db.String(80))
+    date = db.Column(db.Date)
+
+    def __init__(self, confirm, deaths, country, date):
+        self.confirm = confirm
+        self.deaths = deaths
+        self.country = country
+        self.date = date
+
+    def __repr__(self):
+        return '<User %>' % self.name
+
+
+class SARSENTRY(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    confirm = db.Column(db.Integer)
+    deaths = db.Column(db.Integer)
+    country = db.Column(db.String(80))
+    date = db.Column(db.Date)
+
+    def __init__(self, confirm, deaths, country, date):
+        self.confirm = confirm
+        self.deaths = deaths
+        self.country = country
+        self.date = date
+
+    def __repr__(self):
+        return '<User %>' % self.name
+
+
 class NumpyArrayEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, numpy.ndarray):
@@ -147,6 +187,8 @@ def getUser():
 
     covidEntries = []
     swineEntries = []
+    ebolaEntries = []
+    sarsEntries = []
     for ind in covid_data.index:
         if datetime.strptime(covid_data['date'][ind], '%Y-%m-%d') >= datetime.strptime('2020-2-24', '%Y-%m-%d'):
             covidEntries.append(
@@ -177,9 +219,32 @@ def getUser():
                 date=datetime.strptime(Cleaned_SwineFrame['Update Time'][ind], '%m/%d/%Y %H:%M'))
         )
 
+    for ind in ebola_data.index:
+        ebolaEntries.append(
+            EBOLAENTRY(
+                country=str(ebola_data['Country'][ind]),
+                confirm=int(
+                    ebola_data['Cumulative no. of confirmed, probable and suspected cases'][ind]),
+                deaths=int(
+                    ebola_data['Cumulative no. of confirmed, probable and suspected deaths'][ind]),
+                date=datetime.strptime(ebola_data['Date'][ind], '%Y-%m-%d'))
+        )
+
+    for ind in sars_data.index:
+        sarsEntries.append(
+            SARSENTRY(
+                country=str(sars_data['Country'][ind]),
+                confirm=int(
+                    sars_data['Cumulative number of case(s)'][ind]),
+                deaths=int(
+                    sars_data['Number of deaths'][ind]),
+                date=datetime.strptime(sars_data['Date'][ind], '%Y-%m-%d'))
+        )
     try:
         db.session.bulk_save_objects(covidEntries)
         db.session.bulk_save_objects(swineEntries)
+        db.session.bulk_save_objects(ebolaEntries)
+        db.session.bulk_save_objects(sarsEntries)
         db.session.commit()
         json = {
             'name': 'Entries Added',
@@ -416,7 +481,6 @@ def getSummaryValues():
         return (str(e))
 
 
-# daily time series data
 # API for Time Series Data
 @app.route('/get-daily-time-series-values', methods=["GET"])
 def getDailyTimeSeriesConfirmedChartValues():
@@ -451,6 +515,161 @@ def getDailyTimeSeriesConfirmedChartValues():
         for i in coviddeathseries:
             response1.append(i[0])
         return jsonify({"TImeSeriesChart": response, "TimeSeriesDeaths": response1})
+    except Exception as e:
+        return (str(e))
+
+
+# API for COMPARISON Pandemics
+@app.route('/get-swine-countries', methods=["GET"])
+def getSwineCountrieResult():
+    try:
+        swineentry = SWINEENTRY.query.with_entities(
+            SWINEENTRY.country).distinct(SWINEENTRY.country)
+        countries = []
+        for i in swineentry:
+            countries.append(i.country)
+        # print(len(countries))
+        return jsonify({"swine_countries": countries})
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-ebola-countries', methods=["GET"])
+def getEbolaResult():
+    try:
+        ebolaentry = EBOLAENTRY.query.with_entities(
+            EBOLAENTRY.country).distinct(EBOLAENTRY.country)
+        countries = []
+        for i in ebolaentry:
+            countries.append(i.country)
+        # print(len(countries))
+        return jsonify({"ebolaentry_countries": countries})
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-sars-countries', methods=["GET"])
+def getSARSResult():
+    try:
+        sarsentry = SARSENTRY.query.with_entities(
+            SARSENTRY.country).distinct(SARSENTRY.country)
+        countries = []
+        for i in sarsentry:
+            countries.append(i.country)
+        # print(len(countries))
+        return jsonify({"sars_countries": countries})
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-pandemic-100-days-results', methods=["GET"])
+def get100DayResult():
+    try:
+        swine_start_date = datetime.strptime("23-05-2009", "%d-%m-%Y")
+        covid_start_date = datetime.strptime('2020-2-24', '%Y-%m-%d')
+        ebola_start_date = datetime.strptime('2014-8-29', '%Y-%m-%d')
+        sars_start_date = datetime.strptime('2003-3-17', '%Y-%m-%d')
+        covidentry = COVIDENTRY.query.filter(
+            COVIDENTRY.date >= covid_start_date,
+            COVIDENTRY.date <= covid_start_date + timedelta(days=100)
+        ).with_entities(func.sum(COVIDENTRY.totalCases).label(
+            'totalCases')).order_by(COVIDENTRY.dateTimeStamp).group_by(COVIDENTRY.dateTimeStamp).all()
+        covid_response = []
+        for i in covidentry:
+            covid_response.append(i[0])
+
+        # SWINE Flu Querry for 100 Days
+        swineentry = SWINEENTRY.query.filter(
+            SWINEENTRY.date >= swine_start_date,
+            SWINEENTRY.date <= swine_start_date + timedelta(days=100)
+        ).with_entities(func.sum(SWINEENTRY.confirm).label(
+            'totalCases')).order_by(SWINEENTRY.date).group_by(SWINEENTRY.date).all()
+        swine_response = []
+        for i in swineentry:
+            swine_response.append(i[0])
+
+        # Ebola Querry for 100 Days
+        ebulaentry = EBOLAENTRY.query.filter(
+            EBOLAENTRY.date >= ebola_start_date,
+            EBOLAENTRY.date <= ebola_start_date + timedelta(days=100)
+        ).with_entities(func.sum(EBOLAENTRY.confirm).label(
+            'totalCases')).order_by(EBOLAENTRY.date).group_by(EBOLAENTRY.date).all()
+        ebola_response = []
+        for i in ebulaentry:
+            ebola_response.append(i[0])
+
+        # SARS Querry for 100 Days
+        sarsentry = SARSENTRY.query.filter(
+            SARSENTRY.date >= sars_start_date,
+            SARSENTRY.date <= sars_start_date + timedelta(days=100)
+        ).with_entities(func.sum(SARSENTRY.confirm).label(
+            'totalCases')).order_by(SARSENTRY.date).group_by(SARSENTRY.date).all()
+        sars_response = []
+        for i in sarsentry:
+            sars_response.append(i[0])
+        return jsonify({"100_days_Result": {
+            "covid_response": covid_response,
+            "swine_response": swine_response,
+            "ebola_response": ebola_response,
+            "sars_response": sars_response
+        }})
+
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-pandemic-100-days-deaths-results', methods=["GET"])
+def get100DeathsDayResult():
+    try:
+        swine_start_date = datetime.strptime("23-05-2009", "%d-%m-%Y")
+        covid_start_date = datetime.strptime('2020-2-24', '%Y-%m-%d')
+        ebola_start_date = datetime.strptime('2014-8-29', '%Y-%m-%d')
+        sars_start_date = datetime.strptime('2003-3-17', '%Y-%m-%d')
+        covidentry = COVIDENTRY.query.filter(
+            COVIDENTRY.date >= covid_start_date,
+            COVIDENTRY.date <= covid_start_date + timedelta(days=100)
+        ).with_entities(func.sum(COVIDENTRY.totalDeaths).label(
+            'totalDeaths')).order_by(COVIDENTRY.dateTimeStamp).group_by(COVIDENTRY.dateTimeStamp).all()
+        covid_response = []
+        for i in covidentry:
+            covid_response.append(i[0])
+
+        # SWINE Flu Querry for 100 Days
+        swineentry = SWINEENTRY.query.filter(
+            SWINEENTRY.date >= swine_start_date,
+            SWINEENTRY.date <= swine_start_date + timedelta(days=100)
+        ).with_entities(func.sum(SWINEENTRY.deaths).label(
+            'totalDeaths')).order_by(SWINEENTRY.date).group_by(SWINEENTRY.date).all()
+        swine_response = []
+        for i in swineentry:
+            swine_response.append(i[0])
+
+        # Ebola Querry for 100 Days
+        ebulaentry = EBOLAENTRY.query.filter(
+            EBOLAENTRY.date >= ebola_start_date,
+            EBOLAENTRY.date <= ebola_start_date + timedelta(days=100)
+        ).with_entities(func.sum(EBOLAENTRY.deaths).label(
+            'totalDeaths')).order_by(EBOLAENTRY.date).group_by(EBOLAENTRY.date).all()
+        ebola_response = []
+        for i in ebulaentry:
+            ebola_response.append(i[0])
+
+        # SARS Querry for 100 Days
+        sarsentry = SARSENTRY.query.filter(
+            SARSENTRY.date >= sars_start_date,
+            SARSENTRY.date <= sars_start_date + timedelta(days=100)
+        ).with_entities(func.sum(SARSENTRY.deaths).label(
+            'totalDeaths')).order_by(SARSENTRY.date).group_by(SARSENTRY.date).all()
+        sars_response = []
+        for i in sarsentry:
+            sars_response.append(i[0])
+        return jsonify({"100_days_deaths_Result": {
+            "covid_response": covid_response,
+            "swine_response": swine_response,
+            "ebola_response": ebola_response,
+            "sars_response": sars_response
+        }})
+
     except Exception as e:
         return (str(e))
 
