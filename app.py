@@ -22,10 +22,12 @@ covid_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\owid-covid
 swine_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\swine_flu.csv"
 ebola_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\ebola.csv"
 sars_data_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\sars_2003.csv"
+vaccinations_path = "C:\\Users\\UEA\Desktop\\IV_Coursework\\IV_Backend\\vaccinations.csv"
 covid_data = pd.read_csv(covid_data_path)
 swine_data = pd.read_csv(swine_data_path)
 ebola_data = pd.read_csv(ebola_data_path)
 sars_data = pd.read_csv(sars_data_path)
+vaccinations_data = pd.read_csv(vaccinations_path)
 
 # Knn Imputer
 nan = np.nan
@@ -76,8 +78,13 @@ app = Flask(__name__)
 CORS(app)
 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@localhost:5432/pandemic_db3'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:root@localhost:5432/pandemic_db5'
 db = SQLAlchemy(app)
+
+new_vaccinations_data = vaccinations_data[['location', 'date',
+                                           'daily_vaccinations', 'iso_code']]
+new_vaccinations_data = new_vaccinations_data.fillna(value=0)
+# print(new_vaccinations_data.isna().sum())
 
 
 class COVIDENTRY(db.Model):
@@ -175,6 +182,23 @@ class SARSENTRY(db.Model):
         return '<User %>' % self.name
 
 
+class VACCINEENTRY(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    daily_vaccinations = db.Column(db.Integer)
+    location = db.Column(db.String(80))
+    date = db.Column(db.Date)
+    iso_code = db.Column(db.String(80))
+
+    def __init__(self, daily_vaccinations, location, date, iso_code):
+        self.daily_vaccinations = daily_vaccinations
+        self.location = location
+        self.date = date
+        self.iso_code = iso_code
+
+    def __repr__(self):
+        return '<User %>' % self.name
+
+
 class NumpyArrayEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, numpy.ndarray):
@@ -189,6 +213,7 @@ def getUser():
     swineEntries = []
     ebolaEntries = []
     sarsEntries = []
+    vaccEntries = []
     for ind in covid_data.index:
         if datetime.strptime(covid_data['date'][ind], '%Y-%m-%d') >= datetime.strptime('2020-2-24', '%Y-%m-%d'):
             covidEntries.append(
@@ -240,11 +265,25 @@ def getUser():
                     sars_data['Number of deaths'][ind]),
                 date=datetime.strptime(sars_data['Date'][ind], '%Y-%m-%d'))
         )
+
+    for ind in new_vaccinations_data.index:
+        vaccEntries.append(
+            VACCINEENTRY(
+                location=str(new_vaccinations_data['location'][ind]),
+                daily_vaccinations=int(
+                    new_vaccinations_data['daily_vaccinations'][ind]),
+                date=datetime.strptime(
+                    new_vaccinations_data['date'][ind], '%Y-%m-%d'),
+                iso_code=str(new_vaccinations_data['iso_code'][ind])
+            )
+        )
+
     try:
         db.session.bulk_save_objects(covidEntries)
         db.session.bulk_save_objects(swineEntries)
         db.session.bulk_save_objects(ebolaEntries)
         db.session.bulk_save_objects(sarsEntries)
+        db.session.bulk_save_objects(vaccEntries)
         db.session.commit()
         json = {
             'name': 'Entries Added',
@@ -256,7 +295,7 @@ def getUser():
 # Countries for Drop Down
 
 
-@app.route('/get-covid-countries', methods=["GET"])
+@ app.route('/get-covid-countries', methods=["GET"])
 def getCovidCountries():
     try:
         covidentry = COVIDENTRY.query.with_entities(COVIDENTRY.location).filter(
@@ -272,7 +311,7 @@ def getCovidCountries():
 # Countries for Drop Down
 
 
-@app.route('/get-bar-chart-values', methods=["GET"])
+@ app.route('/get-bar-chart-values', methods=["GET"])
 def getAreaChartValues():
     try:
         covidentry = COVIDENTRY.query.with_entities(COVIDENTRY.location, func.sum(COVIDENTRY.new_cases).label(
@@ -289,7 +328,7 @@ def getAreaChartValues():
         return (str(e))
 
 
-@app.route('/get-bubble-chart-values', methods=["GET"])
+@ app.route('/get-bubble-chart-values', methods=["GET"])
 def getBubbleChartValues():
     try:
         covidentry = COVIDENTRY.query.with_entities(COVIDENTRY.location, COVIDENTRY.continent, func.sum(COVIDENTRY.new_cases).label(
@@ -307,7 +346,7 @@ def getBubbleChartValues():
 
 
 # API for Time Series Data
-@app.route('/get-confirm-time-chart-values', methods=["GET"])
+@ app.route('/get-confirm-time-chart-values', methods=["GET"])
 def getTimeSeriesConfirmedChartValues():
     try:
         covidentry = COVIDENTRY.query.filter_by(**request.args.to_dict()).with_entities(func.sum(COVIDENTRY.new_cases).label(
@@ -320,7 +359,7 @@ def getTimeSeriesConfirmedChartValues():
         return (str(e))
 
 
-@app.route('/get-deaths-time-chart-values', methods=["GET"])
+@ app.route('/get-deaths-time-chart-values', methods=["GET"])
 def getTimeSeriesDeathChartValues():
     try:
 
@@ -338,7 +377,7 @@ def getTimeSeriesDeathChartValues():
         return (str(e))
 
 
-@app.route('/get-dashboard-stats-values', methods=["GET"])
+@ app.route('/get-dashboard-stats-values', methods=["GET"])
 def getDashboardStatsValues():
     try:
 
@@ -670,6 +709,70 @@ def get100DeathsDayResult():
             "sars_response": sars_response
         }})
 
+    except Exception as e:
+        return (str(e))
+
+
+# Vacocination COuntries
+@app.route('/get-vaccination-countries', methods=["GET"])
+def getVaccinationCountries():
+    try:
+        vaccentry = VACCINEENTRY.query.with_entities(
+            VACCINEENTRY.location).distinct(VACCINEENTRY.location)
+        countries = []
+        for i in vaccentry:
+            countries.append(i.location)
+        # print(len(countries))
+        return jsonify({"countries": countries})
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-vacc-time-chart-values', methods=["GET"])
+def getVaccineSeriesValues():
+    try:
+        start_date = datetime.strptime('2021-2-22', '%Y-%m-%d')
+        end_date = datetime.strptime('2021-4-26', '%Y-%m-%d')
+        vaccentry = VACCINEENTRY.query.filter(
+            VACCINEENTRY.location == request.args.to_dict()['location'],
+            VACCINEENTRY.date >= start_date,
+            VACCINEENTRY.date <= end_date
+        ).with_entities(
+            func.sum(VACCINEENTRY.daily_vaccinations).label('totalVaccined'),
+            VACCINEENTRY.date
+        ).order_by(VACCINEENTRY.date).group_by(VACCINEENTRY.date).all()
+        response = []
+        for i in vaccentry:
+            response.append({
+                'vaccines': i[0],
+                'date': i[1]
+            })
+        return jsonify({"TImeSeriesVacc": response})
+    except Exception as e:
+        return (str(e))
+
+
+@app.route('/get-vacc-country-values', methods=["GET"])
+def getVaccineCountryValues():
+    try:
+        start_date = datetime.strptime('2021-2-22', '%Y-%m-%d')
+        end_date = datetime.strptime('2021-4-26', '%Y-%m-%d')
+        vaccentry = VACCINEENTRY.query.filter(
+            VACCINEENTRY.date >= start_date,
+            VACCINEENTRY.date <= end_date
+        ).with_entities(
+            func.sum(VACCINEENTRY.daily_vaccinations).label('totalVaccined'),
+            VACCINEENTRY.location,
+            VACCINEENTRY.iso_code
+        ).order_by(VACCINEENTRY.location).group_by(VACCINEENTRY.location, VACCINEENTRY.iso_code).all()
+        response = []
+        for i in vaccentry:
+            response.append({
+                'vaccines': i[0],
+                'location': i[1],
+                'iso_code': i[2]
+            })
+        return jsonify({"countries-vaccines": response})
     except Exception as e:
         return (str(e))
 
