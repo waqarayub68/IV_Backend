@@ -385,6 +385,7 @@ def getDashboardStatsValues():
             COVIDENTRY.location,
             func.max(COVIDENTRY.totalCases).label('totalCasesConfirm'),
             func.max(COVIDENTRY.totalDeaths).label('totalDeathsConfirm'),
+            func.max(COVIDENTRY.population).label('totalPopulation'),
         ).order_by(COVIDENTRY.location
                    ).group_by(COVIDENTRY.location).all()
         response = []
@@ -393,6 +394,7 @@ def getDashboardStatsValues():
                 "Country": i[0],
                 "ConfirmCases": i[1],
                 "ConfirmDeaths": i[2],
+                "TotalPopulation": i[3],
             })
         return jsonify({"barStats":  sorted(response, key=lambda k: k['ConfirmCases'], reverse=True)})
     except Exception as e:
@@ -467,7 +469,8 @@ def get_comparison_results():
             func.max(COVIDENTRY.totalDeaths),
             COVIDENTRY.location,
             extract('year', COVIDENTRY.date),
-            extract('month', COVIDENTRY.date)
+            extract('month', COVIDENTRY.date),
+            func.max(COVIDENTRY.population),
         ).group_by(COVIDENTRY.location, extract('year', COVIDENTRY.date), extract('month', COVIDENTRY.date)
                    ).order_by(extract('year', COVIDENTRY.date), extract('month', COVIDENTRY.date)).all()
         # covidentry = COVIDENTRY.query.with_entities(
@@ -486,6 +489,7 @@ def get_comparison_results():
                 "Country": i[2],
                 "Year": i[3],
                 "month": i[4],
+                "Population": i[5]
             })
 
         return jsonify({"comparison-result":  response})
